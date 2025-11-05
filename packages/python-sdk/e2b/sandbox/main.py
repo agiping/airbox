@@ -207,4 +207,4 @@ class SandboxBase:
 
         :returns MCP URL for the sandbox.
         """
-        return f"https://{self.get_host(self.mcp_port)}/mcp"
+        return f"https://{self.get_host(self.mcp_port)}"
