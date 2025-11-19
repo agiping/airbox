@@ -1,10 +1,11 @@
 import datetime
 from typing import Dict, List, Optional
 
+from e2b.api.client.types import UNSET, Response
 from packaging.version import Version
 from typing_extensions import Unpack
 
-from e2b.api import SandboxCreateResponse, handle_api_exception
+from e2b.api import ApiClient, SandboxCreateResponse, handle_api_exception
 from e2b.api.client.api.sandboxes import (
     delete_sandboxes_sandbox_id,
     get_sandboxes_sandbox_id,
@@ -22,7 +23,6 @@ from e2b.api.client.models import (
     Sandbox,
     SandboxNetworkConfig,
 )
-from e2b.api.client.types import UNSET
 from e2b.connection_config import ApiParams, ConnectionConfig
 from e2b.exceptions import NotFoundException, SandboxException, TemplateException
 from e2b.sandbox.main import SandboxBase
@@ -34,6 +34,13 @@ from e2b.sandbox.sandbox_api import (
     SandboxQuery,
 )
 from e2b.sandbox_sync.paginator import SandboxPaginator, get_api_client
+
+
+class _QuietApiClient(ApiClient):
+    def _log_response(self, response: Response):
+        if str(response.status_code) == "404":
+            return
+        super()._log_response(response)
 
 
 class SandboxApi(SandboxBase):
@@ -256,7 +263,28 @@ class SandboxApi(SandboxBase):
     ) -> Sandbox:
         timeout = timeout or SandboxBase.default_sandbox_timeout
 
-        config = ConnectionConfig(**opts)
+        # Try to set timeout first (if sandbox is already running)
+        # If sandbox is not running (404), fall back to connect/resume
+        try:
+            config = ConnectionConfig(**opts)
+            if not config.debug:
+                with _QuietApiClient(
+                    config,
+                    limits=SandboxBase._limits,
+                ) as api_client:
+                    res = post_sandboxes_sandbox_id_timeout.sync_detailed(
+                        sandbox_id,
+                        client=api_client,
+                        body=PostSandboxesSandboxIDTimeoutBody(timeout=timeout),
+                    )
+
+                    if res.status_code >= 300:
+                        raise handle_api_exception(res)
+
+            return False
+        except SandboxException:
+            # Sandbox is not running, resume it
+            config = ConnectionConfig(**opts)
 
         api_client = get_api_client(
             config,
