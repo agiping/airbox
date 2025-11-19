@@ -4,7 +4,7 @@ from typing import Optional, Dict, List
 from packaging.version import Version
 from typing_extensions import Unpack
 
-from e2b.api.client.types import UNSET
+from e2b.api.client.types import UNSET, Response
 from e2b.sandbox.main import SandboxBase
 from e2b.sandbox.sandbox_api import SandboxInfo, SandboxMetrics, SandboxQuery, McpServer
 from e2b.exceptions import TemplateException, SandboxException, NotFoundException
@@ -27,6 +27,13 @@ from e2b.api.client.api.sandboxes import (
 from e2b.connection_config import ConnectionConfig, ApiParams
 from e2b.api import handle_api_exception
 from e2b.sandbox_async.paginator import AsyncSandboxPaginator
+
+
+class _QuietAsyncApiClient(AsyncApiClient):
+    async def _log_response(self, response: Response):
+        if str(response.status_code) == "404":
+            return
+        await super()._log_response(response)
 
 
 class SandboxApi(SandboxBase):
@@ -301,11 +308,21 @@ class SandboxApi(SandboxBase):
         # 3. Set the timeout in resume on backend - side effect on error
         # 4. Create new endpoint for connect
         try:
-            await SandboxApi._cls_set_timeout(
-                sandbox_id=sandbox_id,
-                timeout=timeout,
-                **opts,
-            )
+            config = ConnectionConfig(**opts)
+            if not config.debug:
+                async with _QuietAsyncApiClient(
+                    config,
+                    limits=SandboxBase._limits,
+                ) as api_client:
+                    res = await post_sandboxes_sandbox_id_timeout.asyncio_detailed(
+                        sandbox_id,
+                        client=api_client,
+                        body=PostSandboxesSandboxIDTimeoutBody(timeout=timeout),
+                    )
+
+                    if res.status_code >= 300:
+                        raise handle_api_exception(res)
+
             return False
         except SandboxException:
             # Sandbox is not running, resume it
