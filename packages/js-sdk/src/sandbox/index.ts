@@ -403,21 +403,33 @@ export class Sandbox extends SandboxApi {
     sandboxId: string,
     opts?: SandboxConnectOpts
   ): Promise<InstanceType<S>> {
+    let info
     try {
-      await SandboxApi.setTimeout(
-        sandboxId,
-        opts?.timeoutMs || DEFAULT_SANDBOX_TIMEOUT_MS,
-        opts
-      )
+      info = await SandboxApi.getFullInfo(sandboxId, opts)
     } catch (e) {
       if (e instanceof SandboxError) {
         await SandboxApi.resumeSandbox(sandboxId, opts)
+        info = await SandboxApi.getFullInfo(sandboxId, opts)
       } else {
         throw e
       }
     }
 
-    const info = await SandboxApi.getFullInfo(sandboxId, opts)
+    let timeoutMs = opts?.timeoutMs
+    if (!timeoutMs) {
+      const now = new Date()
+      const remainingMs = info.endAt.getTime() - now.getTime()
+      timeoutMs = remainingMs > 0 ? remainingMs : DEFAULT_SANDBOX_TIMEOUT_MS
+    }
+
+    try {
+      await SandboxApi.setTimeout(sandboxId, timeoutMs, opts)
+    } catch (e) {
+      if (e instanceof SandboxError) {
+      } else {
+        throw e
+      }
+    }
 
     const config = new ConnectionConfig(opts)
 
@@ -450,14 +462,32 @@ export class Sandbox extends SandboxApi {
    * ```
    */
   async connect(opts?: SandboxBetaCreateOpts): Promise<this> {
+    let info
     try {
-      await SandboxApi.setTimeout(
-        this.sandboxId,
-        opts?.timeoutMs || DEFAULT_SANDBOX_TIMEOUT_MS,
-        opts
-      )
+      info = await SandboxApi.getFullInfo(this.sandboxId, opts)
     } catch (e) {
-      await SandboxApi.resumeSandbox(this.sandboxId, opts)
+      if (e instanceof SandboxError) {
+        await SandboxApi.resumeSandbox(this.sandboxId, opts)
+        info = await SandboxApi.getFullInfo(this.sandboxId, opts)
+      } else {
+        throw e
+      }
+    }
+
+    let timeoutMs = opts?.timeoutMs
+    if (!timeoutMs) {
+      const now = new Date()
+      const remainingMs = info.endAt.getTime() - now.getTime()
+      timeoutMs = remainingMs > 0 ? remainingMs : DEFAULT_SANDBOX_TIMEOUT_MS
+    }
+
+    try {
+      await SandboxApi.setTimeout(this.sandboxId, timeoutMs, opts)
+    } catch (e) {
+      if (e instanceof SandboxError) {
+      } else {
+        throw e
+      }
     }
 
     return this
